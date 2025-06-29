@@ -1,11 +1,18 @@
 //
 //  STOMPHeaders.swift
-//  
+//  swift-stomp
 //
 //  Created by Cole M on 5/3/23.
 //
-
-import Foundation
+//  Copyright (c) 2025 NeedleTail Organization. 
+//
+//  This project is licensed under the MIT License.
+//
+//  See the LICENSE file for more information.
+//
+//  This file is part of the Swift STOMP SDK, which provides
+//  STOMP protocol implementation for Swift applications.
+//
 
 public enum STOMPHeaders: String, CustomStringConvertible, Sendable {
     
@@ -74,45 +81,5 @@ public enum STOMPHeaders: String, CustomStringConvertible, Sendable {
         case .customHeaders:
             return "customHeaders"
         }
-    }
-}
-
-public enum EncodingType: Sendable {
-    case utf8, utf16
-    
-    var description: String {
-        switch self {
-        case .utf8:
-            return "utf-8"
-        case .utf16:
-            return "utf-16"
-        }
-    }
-}
-
-public struct Charset: Sendable {
-    
-    var charset: String = ""
-    
-    init(encoding: EncodingType) {
-        self.charset = ";charset=\(encoding.description)"
-    }
-}
-
-
-public enum MIMEType: String, Sendable {
-    case text, application
-}
-
-public enum MIMESubType: String, Sendable {
-    case html, json, xml, plain
-}
-
-public struct MIME: Sendable {
-    
-    var mime: String = ""
-    
-    init(type: MIMEType, subType: MIMESubType) {
-        self.mime = "\(type)/\(subType)"
     }
 }

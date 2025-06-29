@@ -1,15 +1,20 @@
 //
 //  STOMPDecoder.swift
-//  
+//  swift-stomp
 //
 //  Created by Cole M on 5/3/23.
 //
+//  Copyright (c) 2025 NeedleTail Organization. 
+//
+//  This project is licensed under the MIT License.
+//
+//  See the LICENSE file for more information.
+//
+//  This file is part of the Swift STOMP SDK, which provides
+//  STOMP protocol implementation for Swift applications.
+//
 
 import Foundation
-
-enum STOMPErrors: Error {
-    case invalidCommand, invalidFirstLine, invalidACK, invalidBody
-}
 
 public final class STOMPDecoder: Sendable {
     
@@ -22,99 +27,125 @@ public final class STOMPDecoder: Sendable {
      */
     public class func decode(_ frame: String) async throws -> STOMPFrame {
         
-        var command: STOMPCommand?
-        var headerConfiguration = STOMPHeaderConfiguration()
-        var lines = frame.components(separatedBy: "\n")
+        // Split the frame into lines
+        let lines = frame.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         
-        if lines.first!.isEmpty {
-            lines.removeFirst()
+        // Ensure the frame is not empty
+        guard !lines.isEmpty else {
+            throw STOMPError.invalidFirstLine("Empty frame")
         }
         
-        //Command
-        guard let firstLine = lines.first else { throw STOMPErrors.invalidFirstLine }
-        command = STOMPCommand(rawValue: firstLine)
-        guard let command = command else { throw STOMPErrors.invalidCommand }
+        // Command
+        guard let firstLine = lines.first, !firstLine.isEmpty else {
+            throw STOMPError.invalidFirstLine("Empty first line")
+        }
         
-        //Headers
-        // We cound have an endless list of Headers, search for next line that is empty, then we want to iterate over that array of lines to construct our header
-        let newArray = lines.dropFirst()
-        guard let index = newArray.firstIndex(of: "") else { throw STOMPErrors.invalidFirstLine }
+        guard let command = STOMPCommand(rawValue: firstLine) else {
+            throw STOMPError.invalidCommand(firstLine)
+        }
         
-        for line in Array(newArray.prefix(index - 1)) {
-            let headerComponents = line.components(separatedBy: ":")
-            switch STOMPHeaders(rawValue: String(headerComponents[0])) {
+        // Headers
+        let headerLines = lines.dropFirst()
+        guard let index = headerLines.firstIndex(of: "") else {
+            throw STOMPError.invalidFirstLine("No empty line found after headers")
+        }
+        
+        var headerConfiguration = STOMPHeaderConfiguration()
+        
+        for line in headerLines.prefix(upTo: index) {
+            let headerComponents = line.components(separatedBy: ":").map { $0.trimmingCharacters(in: .whitespaces) }
+            
+            // Ensure there are at least two components (key and value)
+            guard headerComponents.count >= 2 else {
+                throw STOMPError.invalidFrame("Invalid header format: \(line)")
+            }
+            
+            let key = headerComponents[0]
+            let value = headerComponents[1]
+            
+            // Log the parsed header for debugging
+            print("Parsed header: \(key) = \(value)")
+            
+            switch STOMPHeaders(rawValue: key) {
             case .contentLength:
-                headerConfiguration.contentLength = String(headerComponents[1])
+                headerConfiguration.contentLength = value
             case .contentType:
-                headerConfiguration.contentType = String(headerComponents[1])
+                headerConfiguration.contentType = value
             case .acceptVersion:
-                headerConfiguration.acceptVersion = String(headerComponents[1])
+                headerConfiguration.acceptVersion = value
             case .host:
-                headerConfiguration.host = String(headerComponents[1])
+                headerConfiguration.host = value
             case .login:
-                headerConfiguration.login = String(headerComponents[1])
+                headerConfiguration.login = value
             case .passcode:
-                headerConfiguration.passcode = String(headerComponents[1])
+                headerConfiguration.passcode = value
             case .heartbeat:
-                let heartbeatComponents = String(headerComponents[1]).components(separatedBy: ",")
-                headerConfiguration.heartbeat = STOMPHeartbeat(send: Int(heartbeatComponents[0]) ?? 0, receive: Int(heartbeatComponents[1]) ?? 0)
+                let heartbeatComponents = value.components(separatedBy: ",")
+                guard heartbeatComponents.count == 2,
+                      let send = Int(heartbeatComponents[0]),
+                      let receive = Int(heartbeatComponents[1]) else {
+                    throw STOMPError.invalidHeaderValue("heart-beat", value)
+                }
+                headerConfiguration.heartbeat = STOMPHeartbeat(send: send, receive: receive)
             case .version:
-                headerConfiguration.version = String(headerComponents[1])
+                headerConfiguration.version = value
             case .session:
-                headerConfiguration.session = String(headerComponents[1])
+                headerConfiguration.session = value
             case .server:
-                headerConfiguration.server = String(headerComponents[1])
+                headerConfiguration.server = value
             case .destination:
-                headerConfiguration.destination = String(headerComponents[1])
+                headerConfiguration.destination = value
             case .id:
-                headerConfiguration.id = String(headerComponents[1])
+                headerConfiguration.id = value
             case .ack:
-                guard let ack = ACKMode(rawValue: String(headerComponents[1])) else { throw STOMPErrors.invalidACK }
+                guard let ack = ACKMode(rawValue: value) else {
+                    throw STOMPError.invalidACK(value)
+                }
                 headerConfiguration.ack = ack
             case .transaction:
-                headerConfiguration.transaction = String(headerComponents[1])
+                headerConfiguration.transaction = value
             case .receipt:
-                headerConfiguration.receipt = String(headerComponents[1])
+                headerConfiguration.receipt = value
             case .messageId:
-                headerConfiguration.messageId = String(headerComponents[1])
+                headerConfiguration.messageId = value
             case .subscription:
-                headerConfiguration.subscription = String(headerComponents[1])
+                headerConfiguration.subscription = value
             case .receiptId:
-                headerConfiguration.receiptId = String(headerComponents[1])
+                headerConfiguration.receiptId = value
             case .message:
-                headerConfiguration.message = String(headerComponents[1])
+                headerConfiguration.message = value
             case .customHeaders:
-                let customHeaders = String(headerComponents[1]).components(separatedBy: ",")
-                var tempDict = [String:String]()
-                for dict in customHeaders {
-                    let seperatedDict = dict.components(separatedBy: ":")
-                    tempDict[seperatedDict[0]] = seperatedDict[1]
-                }
-                headerConfiguration.customHeaders = tempDict
+                // Handle custom headers if needed
+                headerConfiguration.customHeaders?[key] = value
             default:
-                break
+                // Unknown header, add to custom headers
+                if headerConfiguration.customHeaders == nil {
+                    headerConfiguration.customHeaders = [:]
+                }
+                headerConfiguration.customHeaders?[key] = value
             }
         }
         
-        
-        
-        if newArray.count > index {
-            //Body
-            var body: BodyType?
+        // Body
+        if headerLines.count > index {
             let bodyIndex = index + 1
-            var bodyLine = newArray[bodyIndex]
-            if bodyLine.hasSuffix("\0") {
-                bodyLine = bodyLine.replacingOccurrences(of: "\0", with: "")
-            }
-            if let data = Data(base64Encoded: bodyLine){
-                body = .data(data)
+            let bodyLines = headerLines[bodyIndex...]
+            let body = bodyLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Check for null terminator and handle base64 if necessary
+            let trimmedBody = body.hasSuffix("\0") ? String(body.dropLast()) : body
+            
+            let bodyType: BodyType
+            if let data = Data(base64Encoded: trimmedBody) {
+                bodyType = .data(data)
             } else {
-                body = .string(bodyLine)
+                bodyType = .string(trimmedBody)
             }
-            guard let body = body else { throw STOMPErrors.invalidBody }
-            return STOMPFrame(command: command, configuration: headerConfiguration, body:body)
+            
+            return STOMPFrame(command: command, configuration: headerConfiguration, body: bodyType)
         } else {
             return STOMPFrame(command: command, configuration: headerConfiguration)
         }
     }
+    
 }

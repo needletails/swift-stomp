@@ -1,13 +1,22 @@
 //
 //  STOMPFrame.swift
-//  
+//  swift-stomp
 //
 //  Created by Cole M on 4/6/23.
+//
+//  Copyright (c) 2025 NeedleTail Organization. 
+//
+//  This project is licensed under the MIT License.
+//
+//  See the LICENSE file for more information.
+//
+//  This file is part of the Swift STOMP SDK, which provides
+//  STOMP protocol implementation for Swift applications.
 //
 
 import Foundation
 
-enum BodyType: Sendable {
+public enum BodyType: Sendable {
     case string(String), data(Data)
 }
 
@@ -250,6 +259,38 @@ public struct STOMPFrame: Sendable {
             
             //Optional
             self.headers[STOMPHeaders.receipt.description] = configuration.receipt
+            
+        case .CONNECTED:
+            // Server response to CONNECT - no required headers for client processing
+            self.headers[STOMPHeaders.version.description] = configuration.version
+            self.headers[STOMPHeaders.session.description] = configuration.session
+            self.headers[STOMPHeaders.server.description] = configuration.server
+            self.headers[STOMPHeaders.heartbeat.description] = configuration.heartbeat?.description
+            
+        case .MESSAGE:
+            // Server sends MESSAGE frames to clients with subscriptions
+            assert(configuration.destination != nil, "destination header is required")
+            assert(configuration.messageId != nil, "message-id header is required")
+            assert(configuration.subscription != nil, "subscription header is required")
+            
+            self.headers[STOMPHeaders.destination.description] = configuration.destination
+            self.headers[STOMPHeaders.messageId.description] = configuration.messageId
+            self.headers[STOMPHeaders.subscription.description] = configuration.subscription
+            self.headers[STOMPHeaders.ack.description] = configuration.ack.description
+            self.headers[STOMPHeaders.contentLength.description] = configuration.contentLength
+            self.headers[STOMPHeaders.contentType.description] = configuration.contentType
+            
+        case .RECEIPT:
+            // Server response to frames with receipt header
+            assert(configuration.receiptId != nil, "receipt-id header is required")
+            self.headers[STOMPHeaders.receiptId.description] = configuration.receiptId
+            
+        case .ERROR:
+            // Server error response
+            self.headers[STOMPHeaders.version.description] = configuration.version
+            self.headers[STOMPHeaders.contentType.description] = configuration.contentType
+            self.headers[STOMPHeaders.contentLength.description] = configuration.contentLength
+            self.headers[STOMPHeaders.message.description] = configuration.message
         }
         
         if self.headers.contains(where: { $0.key != STOMPHeaders.contentLength.description }), let contentLength = configuration.contentLength {

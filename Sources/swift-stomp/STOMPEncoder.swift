@@ -28,8 +28,7 @@ public final class STOMPEncoder: @unchecked Sendable {
         for header in headers {
             encoded += "\(header.key):\(header.value)\n"
         }
-        
-        
+
         
         switch body {
         case .string(let string):

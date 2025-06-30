@@ -21,14 +21,15 @@ public protocol STOMPHeartbeatDelegate: AnyObject, Sendable {
     func onHeartbeatTimeout() async
 }
 
-public class STOMPHeartbeatManager: @unchecked Sendable {
+public actor STOMPHeartbeatManager {
     private weak var delegate: STOMPHeartbeatDelegate?
     private let heartbeat: STOMPHeartbeat
     private let timeout: TimeInterval
     
-    private var sendTimer: Timer?
-    private var receiveTimer: Timer?
+    private var sendTask: Task<Void, Never>?
+    private var receiveTask: Task<Void, Never>?
     private var lastReceivedHeartbeat: Date?
+    private var isRunning = false
     
     public init(heartbeat: STOMPHeartbeat, timeout: TimeInterval = 30.0, delegate: STOMPHeartbeatDelegate? = nil) {
         self.heartbeat = heartbeat
@@ -37,65 +38,82 @@ public class STOMPHeartbeatManager: @unchecked Sendable {
     }
     
     public func start() {
-        stop() // Stop any existing timers
+        stop() // Stop any existing tasks
         
-        // Start send timer if we need to send heartbeats
+        isRunning = true
+        
+        // Start send task if we need to send heartbeats
         if heartbeat.send > 0 {
-            sendTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(heartbeat.send / 1000), repeats: true) { [weak self] _ in
-                Task {
-                    await self?.sendHeartbeat()
-                }
+            sendTask = Task { [weak self] in
+                guard let self else { return }
+                await self.runSendHeartbeatLoop()
             }
         }
         
-        // Start receive timer if we expect to receive heartbeats
+        // Start receive task if we expect to receive heartbeats
         if heartbeat.receive > 0 {
-            receiveTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(heartbeat.receive / 1000), repeats: true) { [weak self] _ in
-                self?.checkHeartbeatTimeout()
+            receiveTask = Task { [weak self] in
+                guard let self else { return }
+                await self.runReceiveHeartbeatLoop()
             }
         }
     }
     
     public func stop() {
-        sendTimer?.invalidate()
-        sendTimer = nil
-        receiveTimer?.invalidate()
-        receiveTimer = nil
+        isRunning = false
+        sendTask?.cancel()
+        sendTask = nil
+        receiveTask?.cancel()
+        receiveTask = nil
     }
     
     public func onHeartbeatReceived() {
         lastReceivedHeartbeat = Date()
     }
     
-    private func sendHeartbeat() async {
-        do {
-            try await delegate?.sendHeartbeat()
-        } catch {
-            // Log error but don't stop the timer
-            print("Failed to send heartbeat: \(error)")
+    private func runSendHeartbeatLoop() async {
+        let interval = TimeInterval(heartbeat.send / 1000)
+        
+        while isRunning {
+            do {
+                try await delegate?.sendHeartbeat()
+            } catch {
+                // Log error but don't stop the loop
+                print("Failed to send heartbeat: \(error)")
+            }
+            
+            // Sleep for the heartbeat interval
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
         }
     }
     
-    private func checkHeartbeatTimeout() {
+    private func runReceiveHeartbeatLoop() async {
+        let interval = TimeInterval(heartbeat.receive / 1000)
+        
+        while isRunning {
+            await checkHeartbeatTimeout()
+            
+            // Sleep for the heartbeat interval
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+        }
+    }
+    
+    private func checkHeartbeatTimeout() async {
         guard let lastReceived = lastReceivedHeartbeat else {
             // No heartbeat received yet, check if we've exceeded the timeout
             if Date().timeIntervalSince(Date().addingTimeInterval(-timeout)) > timeout {
-                Task {
-                    await delegate?.onHeartbeatTimeout()
-                }
+                await delegate?.onHeartbeatTimeout()
             }
             return
         }
         
         if Date().timeIntervalSince(lastReceived) > timeout {
-            Task {
-                await delegate?.onHeartbeatTimeout()
-            }
+            await delegate?.onHeartbeatTimeout()
         }
     }
     
     public var isActive: Bool {
-        return sendTimer != nil || receiveTimer != nil
+        return isRunning
     }
     
     public var timeSinceLastHeartbeat: TimeInterval? {

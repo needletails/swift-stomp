@@ -98,7 +98,7 @@ public actor STOMPClient: STOMPHeartbeatDelegate {
         connectionState = .disconnecting
         
         // Stop heartbeat
-        heartbeatManager?.stop()
+        await heartbeatManager?.stop()
         
         // Send DISCONNECT frame
         let disconnectFrame = try await createDisconnectFrame()
@@ -494,7 +494,7 @@ public actor STOMPClient: STOMPHeartbeatDelegate {
                 timeout: configuration.heartbeatTimeout,
                 delegate: self
             )
-            heartbeatManager?.start()
+            await heartbeatManager?.start()
         }
         
         await delegate?.onConnected(connectionInfo: connectionInfo ?? STOMPConnectionInfo())
@@ -502,7 +502,7 @@ public actor STOMPClient: STOMPHeartbeatDelegate {
     
     private func handleDisconnected() async {
         connectionState = .disconnected
-        heartbeatManager?.stop()
+        await heartbeatManager?.stop()
         heartbeatManager = nil
         connectionInfo = nil
         
